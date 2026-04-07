@@ -1,1 +1,6 @@
 .claude/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+screenshot_*.png

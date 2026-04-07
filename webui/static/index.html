@@ -1,0 +1,925 @@
+<!DOCTYPE html>
+<html lang="zh-TW" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SD.cpp Web UI</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    darkMode: 'class',
+    theme: { extend: { colors: { accent: '#7c3aed' } } }
+  }
+</script>
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<style>
+  body { background:#111827; color:#f3f4f6; font-family:'Segoe UI',system-ui,sans-serif; }
+  textarea { resize:vertical; }
+  .lora-token { color:#a78bfa; font-weight:600; }
+  .scrollbar::-webkit-scrollbar { width:6px; }
+  .scrollbar::-webkit-scrollbar-thumb { background:#374151; border-radius:3px; }
+  .tag-btn { cursor:pointer; transition:all .15s; }
+  .tag-btn:hover { transform:scale(1.05); }
+  .progress-bar { transition:width .3s ease; }
+  .img-thumb { cursor:pointer; transition:transform .15s; }
+  .img-thumb:hover { transform:scale(1.04); }
+  ::-webkit-scrollbar { width:6px; height:6px; }
+  ::-webkit-scrollbar-thumb { background:#374151; border-radius:3px; }
+  input[type=number]::-webkit-inner-spin-button { opacity:1; }
+  .fade-enter-active,.fade-leave-active { transition:opacity .2s; }
+  .fade-enter-from,.fade-leave-to { opacity:0; }
+</style>
+</head>
+<body class="min-h-screen">
+
+<div id="app">
+
+<!-- ── Navbar ─────────────────────────────────────────────────────────────── -->
+<nav class="bg-gray-900 border-b border-gray-700 px-4 py-2 flex items-center justify-between sticky top-0 z-50">
+  <div class="flex items-center gap-3">
+    <span class="text-purple-400 font-bold text-lg">⚡ SD.cpp Web UI</span>
+    <span v-if="binaryOk" class="text-xs text-green-400 bg-green-900/30 px-2 py-0.5 rounded">binary OK</span>
+    <span v-else class="text-xs text-red-400 bg-red-900/30 px-2 py-0.5 rounded">binary not found</span>
+  </div>
+  <div class="flex items-center gap-3">
+    <!-- GPU monitor -->
+    <div v-if="gpu.available" class="text-xs text-gray-300 bg-gray-800 px-3 py-1 rounded flex gap-2">
+      <span class="text-purple-300">{{ gpu.name }}</span>
+      <span>VRAM {{ gpu.vram_used }}/{{ gpu.vram_total }} MB</span>
+      <span :class="gpu.gpu_util>80?'text-red-400':'text-green-400'">GPU {{ gpu.gpu_util }}%</span>
+    </div>
+    <a href="/gallery" class="text-sm text-gray-300 hover:text-white px-3 py-1 rounded bg-gray-800 hover:bg-gray-700">🖼 Gallery</a>
+    <a href="/settings" class="text-sm text-gray-300 hover:text-white px-3 py-1 rounded bg-gray-800 hover:bg-gray-700">⚙ Settings</a>
+  </div>
+</nav>
+
+<!-- ── Main grid ───────────────────────────────────────────────────────────── -->
+<div class="flex gap-3 p-3 max-w-[1600px] mx-auto">
+
+  <!-- LEFT: Model + Params ─────────────────────────────────────────────────── -->
+  <div class="w-64 flex-shrink-0 space-y-3">
+
+    <!-- Model selector -->
+    <div class="bg-gray-800 rounded-xl p-3 space-y-2">
+      <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Model</h3>
+      <select v-model="selectedModelId" @change="applyModelDefaults"
+        class="w-full bg-gray-700 border border-gray-600 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-purple-500">
+        <option v-if="models.length===0" value="">No models detected</option>
+        <option v-for="m in models" :key="m.id" :value="m.id"
+          :disabled="!m.available">
+          {{ m.label }} {{ m.available ? '' : '⚠' }}
+        </option>
+      </select>
+      <div v-if="selectedModel && !selectedModel.available" class="text-xs text-red-400">
+        Missing: {{ selectedModel.missing_files?.join(', ') }}
+      </div>
+    </div>
+
+    <!-- Resolution -->
+    <div class="bg-gray-800 rounded-xl p-3 space-y-2">
+      <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Resolution</h3>
+      <select v-model="resPreset" @change="applyResPreset"
+        class="w-full bg-gray-700 border border-gray-600 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-purple-500">
+        <option value="720p_l">720p Landscape (1280×720)</option>
+        <option value="720p_p">720p Portrait (720×1280)</option>
+        <option value="1080p_l">1080p Landscape (1920×1080)</option>
+        <option value="1080p_p">1080p Portrait (1080×1920)</option>
+        <option value="sq1k">Square 1K (1024×1024)</option>
+        <option value="sq768">Square 768 (768×768)</option>
+        <option value="2k_l">2K Landscape (2048×1152)</option>
+        <option value="custom">Custom</option>
+      </select>
+      <div class="flex gap-2">
+        <div class="flex-1">
+          <label class="text-xs text-gray-400">W</label>
+          <input type="number" v-model.number="genParams.width" @blur="snap64('width')" step="64" min="64"
+            class="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm focus:outline-none focus:border-purple-500">
+        </div>
+        <div class="flex-1">
+          <label class="text-xs text-gray-400">H</label>
+          <input type="number" v-model.number="genParams.height" @blur="snap64('height')" step="64" min="64"
+            class="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm focus:outline-none focus:border-purple-500">
+        </div>
+      </div>
+    </div>
+
+    <!-- Gen params -->
+    <div class="bg-gray-800 rounded-xl p-3 space-y-2">
+      <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Parameters</h3>
+
+      <div class="grid grid-cols-2 gap-2">
+        <div>
+          <label class="text-xs text-gray-400">Steps</label>
+          <input type="number" v-model.number="genParams.steps" min="1" max="150"
+            class="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm focus:outline-none focus:border-purple-500">
+        </div>
+        <div>
+          <label class="text-xs text-gray-400">CFG</label>
+          <input type="number" v-model.number="genParams.cfg" min="0" max="30" step="0.5"
+            class="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm focus:outline-none focus:border-purple-500">
+        </div>
+        <div v-if="selectedModel?.defaults?.guidance !== null">
+          <label class="text-xs text-gray-400">Guidance</label>
+          <input type="number" v-model.number="genParams.guidance" min="0" max="20" step="0.5"
+            class="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm focus:outline-none focus:border-purple-500">
+        </div>
+        <div>
+          <label class="text-xs text-gray-400">Batch</label>
+          <input type="number" v-model.number="genParams.batch" min="1" max="16"
+            class="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm focus:outline-none focus:border-purple-500">
+        </div>
+      </div>
+
+      <!-- Seed row -->
+      <div>
+        <label class="text-xs text-gray-400">Seed</label>
+        <div class="flex gap-1">
+          <input type="number" v-model.number="genParams.seed"
+            class="flex-1 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm focus:outline-none focus:border-purple-500">
+          <button @click="randomSeed" title="Random seed"
+            class="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm" :class="seedLocked?'opacity-40':''" :disabled="seedLocked">🎲</button>
+          <button @click="seedLocked=!seedLocked" :title="seedLocked?'Unlock seed':'Lock seed'"
+            class="px-2 py-1 rounded text-sm" :class="seedLocked?'bg-purple-700':'bg-gray-700 hover:bg-gray-600'">🔒</button>
+        </div>
+      </div>
+
+      <!-- Sampler -->
+      <div>
+        <label class="text-xs text-gray-400">Sampler</label>
+        <select v-model="genParams.sampler"
+          class="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm focus:outline-none focus:border-purple-500">
+          <option v-for="s in samplers" :key="s" :value="s">{{ s }}</option>
+        </select>
+      </div>
+      <div>
+        <label class="text-xs text-gray-400">Scheduler</label>
+        <select v-model="genParams.scheduler"
+          class="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm focus:outline-none focus:border-purple-500">
+          <option value="">default</option>
+          <option v-for="s in schedulers" :key="s" :value="s">{{ s }}</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- VRAM Options -->
+    <div class="bg-gray-800 rounded-xl p-3 space-y-2">
+      <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wide">VRAM Options</h3>
+      <label class="flex items-center gap-2 text-sm cursor-pointer">
+        <input type="checkbox" v-model="vramOpts.vae_tiling" class="accent-purple-500">
+        VAE Tiling
+      </label>
+      <label class="flex items-center gap-2 text-sm cursor-pointer">
+        <input type="checkbox" v-model="vramOpts.vae_on_cpu" class="accent-purple-500">
+        VAE on CPU
+      </label>
+      <label class="flex items-center gap-2 text-sm cursor-pointer">
+        <input type="checkbox" v-model="vramOpts.clip_on_cpu" class="accent-purple-500">
+        CLIP on CPU
+      </label>
+      <!-- TAESD -->
+      <div v-if="taesdList.length">
+        <label class="text-xs text-gray-400">TAESD Fast VAE</label>
+        <select v-model="genParams.taesd_path"
+          class="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm focus:outline-none focus:border-purple-500">
+          <option value="">None</option>
+          <option v-for="t in taesdList" :key="t.path" :value="t.path">{{ t.name }}</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- img2img -->
+    <div class="bg-gray-800 rounded-xl p-3 space-y-2">
+      <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wide">img2img</h3>
+      <div class="border-2 border-dashed border-gray-600 rounded-lg p-2 text-center text-xs text-gray-400 cursor-pointer hover:border-purple-500 transition"
+        @click="$refs.img2imgInput.click()"
+        @dragover.prevent @drop.prevent="onImg2ImgDrop">
+        <div v-if="!img2imgThumb">Drop image or click</div>
+        <img v-else :src="img2imgThumb" class="max-h-24 mx-auto rounded">
+      </div>
+      <input type="file" ref="img2imgInput" accept="image/*" class="hidden" @change="onImg2ImgSelect">
+      <div v-if="img2imgPath" class="space-y-1">
+        <label class="text-xs text-gray-400">Strength {{ genParams.strength }}</label>
+        <input type="range" v-model.number="genParams.strength" min="0.01" max="1.0" step="0.01"
+          class="w-full accent-purple-500">
+        <button @click="clearImg2Img" class="text-xs text-red-400 hover:text-red-300">✕ Clear</button>
+      </div>
+    </div>
+
+    <!-- ControlNet -->
+    <div class="bg-gray-800 rounded-xl p-3 space-y-2" v-if="controlnets.length">
+      <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wide">ControlNet</h3>
+      <select v-model="genParams.controlnet_model"
+        class="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm focus:outline-none focus:border-purple-500">
+        <option value="">None</option>
+        <option v-for="c in controlnets" :key="c.path" :value="c.path">{{ c.name }}</option>
+      </select>
+      <div v-if="genParams.controlnet_model" class="space-y-1">
+        <div class="border-2 border-dashed border-gray-600 rounded-lg p-2 text-center text-xs text-gray-400 cursor-pointer hover:border-purple-500"
+          @click="$refs.cnInput.click()" @dragover.prevent @drop.prevent="onCNDrop">
+          <div v-if="!cnThumb">Drop control image</div>
+          <img v-else :src="cnThumb" class="max-h-20 mx-auto rounded">
+        </div>
+        <input type="file" ref="cnInput" accept="image/*" class="hidden" @change="onCNSelect">
+        <label class="text-xs text-gray-400">Strength {{ genParams.controlnet_strength }}</label>
+        <input type="range" v-model.number="genParams.controlnet_strength" min="0" max="2.0" step="0.05"
+          class="w-full accent-purple-500">
+      </div>
+    </div>
+  </div>
+
+  <!-- CENTER: Prompt editor ─────────────────────────────────────────────────── -->
+  <div class="flex-1 min-w-0 space-y-3">
+
+    <!-- Quick Tags -->
+    <div class="bg-gray-800 rounded-xl p-3">
+      <div class="flex items-center justify-between mb-2">
+        <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Quick Tags</h3>
+        <button @click="showTags=!showTags" class="text-xs text-gray-400 hover:text-white">{{ showTags?'▲ hide':'▼ show' }}</button>
+      </div>
+      <div v-if="showTags">
+        <div v-for="(group, gname) in tagGroups" :key="gname" class="mb-2">
+          <div class="text-xs text-purple-400 mb-1">{{ gname }}</div>
+          <div class="flex flex-wrap gap-1">
+            <span v-for="tag in group" :key="tag"
+              @click="insertTag(tag)"
+              class="tag-btn text-xs bg-gray-700 hover:bg-purple-700 px-2 py-0.5 rounded-full text-gray-200">
+              {{ tag }}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Positive prompt -->
+    <div class="bg-gray-800 rounded-xl p-3 space-y-2">
+      <div class="flex items-center justify-between">
+        <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Positive Prompt</h3>
+        <span class="text-xs" :class="tokenCount>77?'text-yellow-400':'text-gray-400'">~{{ tokenCount }} tokens</span>
+      </div>
+      <textarea ref="positiveRef" v-model="genParams.positive" rows="5" placeholder="Describe the image…"
+        class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-purple-500 scrollbar"
+        style="min-height:100px"></textarea>
+    </div>
+
+    <!-- Negative prompt -->
+    <div class="bg-gray-800 rounded-xl p-3 space-y-2">
+      <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Negative Prompt</h3>
+      <textarea v-model="genParams.negative" rows="3" placeholder="What to avoid…"
+        class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-purple-500 scrollbar"></textarea>
+    </div>
+
+    <!-- Preset controls -->
+    <div class="bg-gray-800 rounded-xl p-3">
+      <div class="flex items-center gap-2 flex-wrap">
+        <select v-model="selectedPreset"
+          class="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm focus:outline-none focus:border-purple-500">
+          <option value="">-- select preset --</option>
+          <option v-for="(_, name) in presets" :key="name" :value="name">{{ name }}</option>
+        </select>
+        <button @click="loadPreset" :disabled="!selectedPreset"
+          class="text-sm px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded disabled:opacity-40">📂 Load</button>
+        <button @click="showSavePreset=true"
+          class="text-sm px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded">💾 Save</button>
+        <button @click="deletePreset" :disabled="!selectedPreset"
+          class="text-sm px-3 py-1 bg-red-900/40 hover:bg-red-900/60 rounded disabled:opacity-40 text-red-300">🗑</button>
+      </div>
+      <!-- Save preset dialog -->
+      <div v-if="showSavePreset" class="mt-2 flex gap-2">
+        <input v-model="newPresetName" placeholder="Preset name"
+          class="flex-1 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm focus:outline-none focus:border-purple-500">
+        <button @click="savePreset"
+          class="px-3 py-1 bg-purple-700 hover:bg-purple-600 rounded text-sm">Save</button>
+        <button @click="showSavePreset=false"
+          class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Generate button + progress -->
+    <div class="bg-gray-800 rounded-xl p-3 space-y-2">
+      <div class="flex gap-2">
+        <button @click="generate" :disabled="isRunning || !selectedModelId || !binaryOk"
+          class="flex-1 py-2.5 rounded-lg font-semibold text-sm transition"
+          :class="isRunning?'bg-gray-600 cursor-not-allowed':'bg-purple-600 hover:bg-purple-500 active:bg-purple-700'">
+          {{ isRunning ? '⏳ Generating…' : '▶ Generate' }}
+        </button>
+        <button @click="cancel" :disabled="!isRunning"
+          class="px-4 py-2 bg-red-700/60 hover:bg-red-700 rounded-lg text-sm disabled:opacity-40">✕</button>
+        <button @click="runVariations" :disabled="isRunning || lastSeed===-1" title="Run ±seed variations"
+          class="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm disabled:opacity-40">🎲×4</button>
+      </div>
+      <!-- Progress bar -->
+      <div class="h-2 bg-gray-700 rounded-full overflow-hidden" v-if="isRunning || progress.total>0">
+        <div class="h-full bg-purple-500 progress-bar rounded-full"
+          :style="`width:${progress.total>0?Math.round(progress.current/progress.total*100):0}%`"></div>
+      </div>
+      <div v-if="progress.total>0" class="text-xs text-gray-400 text-right">
+        step {{ progress.current }} / {{ progress.total }}
+      </div>
+    </div>
+
+    <!-- Log panel -->
+    <div class="bg-gray-900 rounded-xl p-3">
+      <div class="flex items-center justify-between mb-2">
+        <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Log</h3>
+        <div class="flex gap-2">
+          <button @click="copyLog" class="text-xs text-gray-400 hover:text-white">📋 Copy</button>
+          <button @click="logLines=[]" class="text-xs text-gray-400 hover:text-white">🗑 Clear</button>
+          <button @click="showLog=!showLog" class="text-xs text-gray-400 hover:text-white">{{ showLog?'▲':'▼' }}</button>
+        </div>
+      </div>
+      <pre v-if="showLog" ref="logEl"
+        class="text-xs font-mono overflow-y-auto scrollbar h-40 whitespace-pre-wrap break-all"
+        ><span v-for="(line, i) in logLines" :key="i"
+          :class="logColor(line)">{{ line }}\n</span></pre>
+    </div>
+
+    <!-- Output gallery (last run) -->
+    <div v-if="lastOutputs.length" class="bg-gray-800 rounded-xl p-3">
+      <div class="flex items-center justify-between mb-2">
+        <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Last Output
+          <span class="text-purple-400 ml-1">seed {{ lastSeed }}</span>
+        </h3>
+        <div class="flex gap-2">
+          <button @click="copyLastSeed" class="text-xs text-gray-400 hover:text-white">📋 Seed</button>
+          <button @click="useSeed" class="text-xs text-gray-400 hover:text-white">🔁 Use seed</button>
+        </div>
+      </div>
+      <div class="flex gap-2 flex-wrap">
+        <div v-for="img in lastOutputs" :key="img" class="relative group">
+          <img :src="img" class="img-thumb h-40 rounded-lg object-cover" @click="openLightbox(img)">
+          <div class="absolute top-1 right-1 hidden group-hover:flex gap-1">
+            <button @click.stop="toggleFavorite(img)"
+              class="text-xs bg-black/70 px-1.5 py-0.5 rounded">
+              {{ isFav(img)?'★':'☆' }}
+            </button>
+            <a :href="img" download class="text-xs bg-black/70 px-1.5 py-0.5 rounded">⬇</a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Prompt History -->
+    <div class="bg-gray-800 rounded-xl p-3">
+      <div class="flex items-center justify-between mb-2">
+        <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Prompt History</h3>
+        <button @click="loadHistory" class="text-xs text-gray-400 hover:text-white">↺ Refresh</button>
+      </div>
+      <div class="space-y-1 max-h-48 overflow-y-auto scrollbar">
+        <div v-for="(h, i) in history" :key="i"
+          class="flex items-start gap-2 p-2 bg-gray-700/50 rounded-lg hover:bg-gray-700 cursor-pointer"
+          @click="loadHistoryEntry(h)">
+          <div class="flex-1 min-w-0">
+            <div class="text-xs text-gray-200 truncate">{{ h.positive || '(empty)' }}</div>
+            <div class="text-xs text-gray-500">{{ h.model }} · {{ h.width }}×{{ h.height }} · {{ fmtTime(h.ts) }}</div>
+          </div>
+        </div>
+        <div v-if="history.length===0" class="text-xs text-gray-500 py-2 text-center">No history yet</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- RIGHT: LoRA panel ────────────────────────────────────────────────────── -->
+  <div class="w-64 flex-shrink-0 space-y-3">
+
+    <div class="bg-gray-800 rounded-xl p-3 space-y-2">
+      <div class="flex items-center justify-between">
+        <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wide">LoRA</h3>
+        <button @click="loadLoras" class="text-xs text-gray-400 hover:text-white">↺</button>
+      </div>
+
+      <!-- LoRA warning for unsupported models -->
+      <div v-if="selectedModel && selectedModel.defaults?.lora_support===false"
+        class="text-xs text-yellow-400 bg-yellow-900/20 px-2 py-1 rounded">
+        ⚠ LoRA experimental on {{ selectedModel.label }}
+      </div>
+
+      <!-- LoRA filter -->
+      <input v-model="loraFilter" placeholder="Filter LoRAs…"
+        class="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs focus:outline-none focus:border-purple-500">
+
+      <!-- LoRA list -->
+      <div class="space-y-1 max-h-96 overflow-y-auto scrollbar pr-1">
+        <div v-if="filteredLoras.length===0" class="text-xs text-gray-500 text-center py-2">
+          {{ loras.length===0 ? 'No LoRAs found' : 'No matches' }}
+        </div>
+        <div v-for="lr in filteredLoras" :key="lr.name"
+          class="bg-gray-700/60 rounded-lg p-2 space-y-1">
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" v-model="lr.enabled" class="accent-purple-500 flex-shrink-0">
+            <span class="text-xs truncate" :title="lr.name">{{ lr.name }}</span>
+          </label>
+          <div v-if="lr.enabled" class="flex items-center gap-1">
+            <input type="range" v-model.number="lr.weight" min="0" max="2.0" step="0.05"
+              class="flex-1 accent-purple-500">
+            <input type="number" v-model.number="lr.weight" min="0" max="2.0" step="0.05"
+              class="w-14 bg-gray-600 border border-gray-500 rounded px-1 py-0.5 text-xs focus:outline-none">
+          </div>
+        </div>
+      </div>
+
+      <div class="flex gap-2">
+        <button @click="injectLoras"
+          class="flex-1 text-xs py-1.5 bg-purple-700 hover:bg-purple-600 rounded-lg">Inject →</button>
+        <button @click="clearLoras"
+          class="text-xs px-2 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg">✕ All</button>
+      </div>
+    </div>
+
+    <!-- Active LoRAs summary -->
+    <div v-if="activeLoras.length" class="bg-gray-800 rounded-xl p-3">
+      <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Active LoRAs</h3>
+      <div class="space-y-1">
+        <div v-for="lr in activeLoras" :key="lr.name" class="flex items-center justify-between text-xs">
+          <span class="text-purple-300 truncate">{{ lr.name }}</span>
+          <span class="text-gray-400 ml-1 flex-shrink-0">×{{ lr.weight.toFixed(2) }}</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div><!-- /main grid -->
+
+<!-- ── Lightbox ────────────────────────────────────────────────────────────── -->
+<Transition name="fade">
+  <div v-if="lightboxSrc" class="fixed inset-0 bg-black/90 z-50 flex items-center justify-center"
+    @click.self="lightboxSrc=null">
+    <div class="relative max-w-[90vw] max-h-[90vh]">
+      <img :src="lightboxSrc" class="max-w-full max-h-[85vh] rounded-xl object-contain">
+      <div class="absolute top-2 right-2 flex gap-2">
+        <button @click="toggleFavorite(lightboxSrc)"
+          class="bg-black/70 text-yellow-400 px-3 py-1.5 rounded-lg text-sm hover:bg-black">
+          {{ isFav(lightboxSrc)?'★ Faved':'☆ Fav' }}
+        </button>
+        <a :href="lightboxSrc" download class="bg-black/70 px-3 py-1.5 rounded-lg text-sm hover:bg-black">⬇ Download</a>
+        <button @click="lightboxSrc=null" class="bg-black/70 px-3 py-1.5 rounded-lg text-sm hover:bg-black">✕</button>
+      </div>
+    </div>
+  </div>
+</Transition>
+
+</div><!-- /app -->
+
+<script>
+const { createApp, ref, computed, onMounted, onUnmounted, nextTick, watch } = Vue;
+
+const TAG_GROUPS = {
+  "Quality": ["masterpiece","best quality","ultra detailed","8k","photorealistic","sharp focus","highly detailed"],
+  "Style": ["cinematic lighting","soft lighting","golden hour","dramatic shadows","bokeh","film grain","illustration","anime style","oil painting"],
+  "Subject": ["portrait","full body","landscape","close-up","macro","aerial view","interior","urban","fantasy"],
+  "Mood": ["serene","epic","mystical","vibrant","moody","ethereal","warm","cool tones"],
+  "Negative (common)": ["ugly","blurry","bad anatomy","worst quality","low quality","watermark","text","nsfw","deformed","extra limbs"],
+};
+
+const RES_PRESETS = {
+  "720p_l":  [1280, 720], "720p_p":  [720, 1280],
+  "1080p_l": [1920, 1080],"1080p_p": [1080, 1920],
+  "sq1k":    [1024, 1024],"sq768":   [768, 768],
+  "2k_l":    [2048, 1152],"custom":  null,
+};
+
+createApp({
+  setup() {
+    // ── State ──
+    const binaryOk = ref(false);
+    const models = ref([]);
+    const selectedModelId = ref('');
+    const loras = ref([]);
+    const loraFilter = ref('');
+    const controlnets = ref([]);
+    const taesdList = ref([]);
+    const samplers = ref([]);
+    const schedulers = ref([]);
+    const presets = ref({});
+    const selectedPreset = ref('');
+    const newPresetName = ref('');
+    const showSavePreset = ref(false);
+    const history = ref([]);
+    const favorites = ref([]);
+    const gpu = ref({ available: false });
+
+    const genParams = ref({
+      positive: '', negative: '', steps: 20, cfg: 7.5,
+      guidance: null, width: 1280, height: 720, seed: -1,
+      sampler: 'euler', scheduler: '', batch: 1, strength: 0.75,
+      controlnet_model: '', controlnet_image: null, controlnet_strength: 0.9,
+      taesd_path: '',
+    });
+    const vramOpts = ref({ vae_tiling: false, vae_on_cpu: false, clip_on_cpu: false });
+    const resPreset = ref('720p_l');
+    const seedLocked = ref(false);
+
+    const isRunning = ref(false);
+    const progress = ref({ current: 0, total: 0 });
+    const logLines = ref([]);
+    const showLog = ref(true);
+    const lastOutputs = ref([]);
+    const lastSeed = ref(-1);
+    const lightboxSrc = ref(null);
+
+    const img2imgPath = ref(null);
+    const img2imgThumb = ref(null);
+    const cnPath = ref(null);
+    const cnThumb = ref(null);
+
+    const showTags = ref(false);
+    const tagGroups = TAG_GROUPS;
+
+    const logEl = ref(null);
+    const positiveRef = ref(null);
+
+    let ws = null;
+    let gpuTimer = null;
+
+    // ── Computed ──
+    const selectedModel = computed(() =>
+      models.value.find(m => m.id === selectedModelId.value) || null
+    );
+    const filteredLoras = computed(() => {
+      const f = loraFilter.value.toLowerCase();
+      return f ? loras.value.filter(l => l.name.toLowerCase().includes(f)) : loras.value;
+    });
+    const activeLoras = computed(() => loras.value.filter(l => l.enabled));
+    const tokenCount = computed(() => {
+      const t = genParams.value.positive || '';
+      return Math.round(t.split(/\s+/).filter(Boolean).length * 1.3);
+    });
+
+    // ── Init ──
+    onMounted(async () => {
+      await loadSystem();
+      await Promise.all([loadModels(), loadLoras(), loadPresets(), loadHistory(), loadControlnets(), loadTaesd()]);
+      startGpuPolling();
+      loadFavorites();
+    });
+    onUnmounted(() => { clearInterval(gpuTimer); wsClose(); });
+
+    // ── API helpers ──
+    async function api(path, opts = {}) {
+      const r = await fetch(path, {
+        headers: { 'Content-Type': 'application/json' },
+        ...opts,
+      });
+      if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+      return r.json();
+    }
+
+    async function loadSystem() {
+      try {
+        const d = await api('/api/system');
+        binaryOk.value = d.binary_ok;
+        samplers.value = d.samplers || [];
+        schedulers.value = d.schedulers?.filter(Boolean) || [];
+      } catch { binaryOk.value = false; }
+    }
+
+    async function loadModels() {
+      try {
+        const d = await api('/api/models');
+        models.value = d.models || [];
+        if (models.value.length && !selectedModelId.value) {
+          selectedModelId.value = models.value[0].id;
+          applyModelDefaults();
+        }
+      } catch {}
+    }
+
+    async function loadLoras() {
+      try {
+        const d = await api('/api/loras');
+        const prev = Object.fromEntries(loras.value.map(l => [l.name, l]));
+        loras.value = (d.loras || []).map(l => ({
+          ...l,
+          enabled: prev[l.name]?.enabled || false,
+          weight: prev[l.name]?.weight ?? 1.0,
+        }));
+      } catch {}
+    }
+
+    async function loadControlnets() {
+      try {
+        const d = await api('/api/controlnets');
+        controlnets.value = d.controlnets || [];
+      } catch {}
+    }
+
+    async function loadTaesd() {
+      try {
+        const d = await api('/api/taesd');
+        taesdList.value = d.taesd || [];
+      } catch {}
+    }
+
+    async function loadPresets() {
+      try { presets.value = await api('/api/presets'); } catch {}
+    }
+
+    async function loadHistory() {
+      try {
+        const d = await api('/api/history');
+        history.value = d.history || [];
+      } catch {}
+    }
+
+    function loadFavorites() {
+      const raw = localStorage.getItem('sdcpp_favs');
+      favorites.value = raw ? JSON.parse(raw) : [];
+    }
+
+    function startGpuPolling() {
+      const poll = async () => {
+        try { gpu.value = await api('/api/gpu'); } catch {}
+      };
+      poll();
+      gpuTimer = setInterval(poll, 5000);
+    }
+
+    // ── Model defaults ──
+    function applyModelDefaults() {
+      const m = selectedModel.value;
+      if (!m) return;
+      const d = m.defaults || {};
+      genParams.value.steps = d.steps ?? 20;
+      genParams.value.cfg = d.cfg ?? 7.5;
+      genParams.value.guidance = d.guidance ?? null;
+      genParams.value.sampler = d.sampler ?? 'euler';
+      genParams.value.scheduler = d.scheduler ?? '';
+    }
+
+    // ── Resolution ──
+    function applyResPreset() {
+      const p = RES_PRESETS[resPreset.value];
+      if (p) { genParams.value.width = p[0]; genParams.value.height = p[1]; }
+    }
+
+    function snap64(field) {
+      const v = genParams.value[field];
+      genParams.value[field] = Math.max(64, Math.round(v / 64) * 64);
+      resPreset.value = 'custom';
+    }
+
+    // ── Seed ──
+    function randomSeed() {
+      if (!seedLocked.value)
+        genParams.value.seed = Math.floor(Math.random() * 4294967295);
+    }
+
+    // ── Tags ──
+    function insertTag(tag) {
+      const el = positiveRef.value;
+      const cur = genParams.value.positive;
+      const sep = cur && !cur.endsWith(' ') && !cur.endsWith(',') ? ', ' : '';
+      genParams.value.positive = cur + sep + tag;
+      nextTick(() => { if (el) el.focus(); });
+    }
+
+    // ── img2img / CN ──
+    async function onImg2ImgDrop(e) {
+      const f = e.dataTransfer.files[0];
+      if (f) await uploadImg2Img(f);
+    }
+    async function onImg2ImgSelect(e) {
+      const f = e.target.files[0];
+      if (f) await uploadImg2Img(f);
+    }
+    async function uploadImg2Img(file) {
+      const fd = new FormData(); fd.append('file', file);
+      const r = await fetch('/api/upload', { method: 'POST', body: fd });
+      const d = await r.json();
+      img2imgPath.value = d.path;
+      genParams.value.img2img_path = d.path;
+      img2imgThumb.value = URL.createObjectURL(file);
+    }
+    function clearImg2Img() {
+      img2imgPath.value = null; img2imgThumb.value = null;
+      genParams.value.img2img_path = null;
+    }
+    async function onCNDrop(e) { const f=e.dataTransfer.files[0]; if(f) await uploadCN(f); }
+    async function onCNSelect(e) { const f=e.target.files[0]; if(f) await uploadCN(f); }
+    async function uploadCN(file) {
+      const fd = new FormData(); fd.append('file', file);
+      const r = await fetch('/api/upload', { method: 'POST', body: fd });
+      const d = await r.json();
+      cnPath.value = d.path; genParams.value.controlnet_image = d.path;
+      cnThumb.value = URL.createObjectURL(file);
+    }
+
+    // ── LoRA ──
+    function injectLoras() {
+      const tokens = activeLoras.value.map(l => `<lora:${l.name}:${l.weight.toFixed(2)}>`).join(' ');
+      if (!tokens) return;
+      const cur = genParams.value.positive;
+      const sep = cur && !cur.endsWith(' ') ? ' ' : '';
+      genParams.value.positive = cur + sep + tokens;
+    }
+    function clearLoras() { loras.value.forEach(l => { l.enabled = false; }); }
+
+    // ── Presets ──
+    function loadPreset() {
+      const p = presets.value[selectedPreset.value];
+      if (!p) return;
+      genParams.value.positive = p.positive || '';
+      genParams.value.negative = p.negative || '';
+      if (p.model) { selectedModelId.value = p.model; applyModelDefaults(); }
+      if (p.steps) genParams.value.steps = p.steps;
+      if (p.cfg !== undefined) genParams.value.cfg = p.cfg;
+      if (p.width) genParams.value.width = p.width;
+      if (p.height) genParams.value.height = p.height;
+      if (p.loras) {
+        loras.value.forEach(l => {
+          const found = p.loras.find(pl => pl.name === l.name);
+          l.enabled = !!found;
+          if (found) l.weight = found.weight;
+        });
+      }
+    }
+    async function savePreset() {
+      const name = newPresetName.value.trim();
+      if (!name) return;
+      const data = {
+        positive: genParams.value.positive, negative: genParams.value.negative,
+        model: selectedModelId.value, steps: genParams.value.steps,
+        cfg: genParams.value.cfg, width: genParams.value.width, height: genParams.value.height,
+        loras: activeLoras.value.map(l => ({ name: l.name, weight: l.weight })),
+      };
+      await api('/api/presets', { method: 'POST', body: JSON.stringify({ name, data }) });
+      await loadPresets();
+      selectedPreset.value = name;
+      showSavePreset.value = false; newPresetName.value = '';
+    }
+    async function deletePreset() {
+      if (!selectedPreset.value) return;
+      if (!confirm(`Delete preset "${selectedPreset.value}"?`)) return;
+      await api(`/api/presets/${encodeURIComponent(selectedPreset.value)}`, { method: 'DELETE' });
+      await loadPresets();
+      selectedPreset.value = '';
+    }
+
+    // ── History ──
+    function loadHistoryEntry(h) {
+      genParams.value.positive = h.positive || '';
+      genParams.value.negative = h.negative || '';
+      if (h.model) selectedModelId.value = h.model;
+      genParams.value.steps = h.steps || genParams.value.steps;
+      genParams.value.cfg = h.cfg || genParams.value.cfg;
+      genParams.value.width = h.width || genParams.value.width;
+      genParams.value.height = h.height || genParams.value.height;
+      genParams.value.seed = h.seed ?? genParams.value.seed;
+    }
+    function fmtTime(ts) {
+      return new Date(ts * 1000).toLocaleString();
+    }
+
+    // ── Favorites ──
+    async function toggleFavorite(imgUrl) {
+      const fname = imgUrl.split('/').pop();
+      try { await api(`/api/favorites/${encodeURIComponent(fname)}`, { method: 'POST' }); } catch {}
+      const idx = favorites.value.indexOf(fname);
+      if (idx >= 0) favorites.value.splice(idx, 1);
+      else favorites.value.push(fname);
+      localStorage.setItem('sdcpp_favs', JSON.stringify(favorites.value));
+    }
+    function isFav(imgUrl) {
+      return favorites.value.includes(imgUrl.split('/').pop());
+    }
+
+    // ── Generate ──
+    const variationQueue = ref([]);
+
+    async function generate() {
+      if (isRunning.value) return;
+      isRunning.value = true;
+      progress.value = { current: 0, total: 0 };
+      logLines.value = [];
+      lastOutputs.value = [];
+
+      const payload = {
+        model_id: selectedModelId.value,
+        positive: genParams.value.positive,
+        negative: genParams.value.negative,
+        loras: loras.value.filter(l => l.enabled).map(l => ({ name: l.name, weight: l.weight, enabled: true })),
+        steps: genParams.value.steps,
+        cfg: genParams.value.cfg,
+        guidance: genParams.value.guidance,
+        width: genParams.value.width,
+        height: genParams.value.height,
+        seed: genParams.value.seed,
+        sampler: genParams.value.sampler,
+        scheduler: genParams.value.scheduler,
+        batch: genParams.value.batch,
+        img2img_path: genParams.value.img2img_path || null,
+        strength: genParams.value.strength,
+        controlnet_model: genParams.value.controlnet_model || null,
+        controlnet_image: genParams.value.controlnet_image || null,
+        controlnet_strength: genParams.value.controlnet_strength,
+        taesd_path: genParams.value.taesd_path || null,
+      };
+
+      // save VRAM opts to config
+      try {
+        await api('/api/config', { method: 'POST', body: JSON.stringify(vramOpts.value) });
+      } catch {}
+
+      let jobId;
+      try {
+        const r = await api('/api/generate', { method: 'POST', body: JSON.stringify(payload) });
+        jobId = r.job_id;
+      } catch (e) {
+        logLines.value.push(`[error] ${e.message}`);
+        isRunning.value = false;
+        return;
+      }
+
+      wsConnect(jobId);
+    }
+
+    function wsConnect(jobId) {
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      ws = new WebSocket(`${proto}://${location.host}/ws/${jobId}`);
+      ws.onmessage = (e) => {
+        const msg = JSON.parse(e.data);
+        if (msg.type === 'log') {
+          logLines.value.push(msg.line);
+          nextTick(() => { if (logEl.value) logEl.value.scrollTop = logEl.value.scrollHeight; });
+        } else if (msg.type === 'progress') {
+          progress.value = { current: msg.current, total: msg.total };
+        } else if (msg.type === 'done') {
+          lastOutputs.value = [...lastOutputs.value, ...(msg.outputs || [])];
+          lastSeed.value = msg.seed ?? -1;
+          if (!seedLocked.value) genParams.value.seed = -1;
+          isRunning.value = false;
+          loadHistory();
+          if (variationQueue.value.length > 0) _nextVariation();
+        } else if (msg.type === 'error') {
+          logLines.value.push(`[error] ${msg.message}`);
+          isRunning.value = false;
+          variationQueue.value = [];
+        }
+      };
+      ws.onclose = () => { isRunning.value = false; };
+      ws.onerror = () => { isRunning.value = false; variationQueue.value = []; };
+    }
+
+    function wsClose() { if (ws) { ws.close(); ws = null; } }
+
+    async function cancel() {
+      variationQueue.value = [];
+      try { await api('/api/cancel', { method: 'POST' }); } catch {}
+      wsClose();
+      isRunning.value = false;
+    }
+
+    // ── Variations ──
+    async function runVariations() {
+      if (isRunning.value || lastSeed.value === -1) return;
+      variationQueue.value = [
+        lastSeed.value + 1, lastSeed.value + 2,
+        lastSeed.value - 1, lastSeed.value - 2,
+      ].map(s => Math.max(0, s));
+      await _nextVariation();
+    }
+    async function _nextVariation() {
+      if (variationQueue.value.length === 0) return;
+      genParams.value.seed = variationQueue.value.shift();
+      await generate();
+    }
+
+    // ── Log ──
+    function logColor(line) {
+      if (line.includes('[✗]') || line.includes('[error]')) return 'text-red-400';
+      if (line.includes('step')) return 'text-green-400';
+      if (line.includes('[i]') || line.includes('[cmd]')) return 'text-gray-500';
+      if (line.includes('[seed]')) return 'text-purple-400';
+      return 'text-gray-300';
+    }
+    function copyLog() {
+      navigator.clipboard?.writeText(logLines.value.join('\n'));
+    }
+
+    // ── Lightbox ──
+    function openLightbox(src) { lightboxSrc.value = src; }
+
+    // ── Copy seed ──
+    function copyLastSeed() { navigator.clipboard?.writeText(String(lastSeed.value)); }
+    function useSeed() { genParams.value.seed = lastSeed.value; seedLocked.value = true; }
+
+    return {
+      binaryOk, models, selectedModelId, selectedModel, loras, filteredLoras,
+      activeLoras, loraFilter, controlnets, taesdList, samplers, schedulers,
+      presets, selectedPreset, newPresetName, showSavePreset, history, favorites,
+      gpu, genParams, vramOpts, resPreset, seedLocked, isRunning, progress,
+      logLines, showLog, lastOutputs, lastSeed, lightboxSrc, img2imgPath,
+      img2imgThumb, cnPath, cnThumb, showTags, tagGroups, tokenCount,
+      logEl, positiveRef,
+      loadLoras, applyModelDefaults, applyResPreset, snap64, randomSeed,
+      insertTag, onImg2ImgDrop, onImg2ImgSelect, clearImg2Img,
+      onCNDrop, onCNSelect, injectLoras, clearLoras,
+      loadPreset, savePreset, deletePreset, loadHistoryEntry, fmtTime,
+      toggleFavorite, isFav, generate, cancel, runVariations,
+      logColor, copyLog, openLightbox, copyLastSeed, useSeed, loadHistory,
+    };
+  }
+}).mount('#app');
+</script>
+</body>
+</html>

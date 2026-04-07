@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh-TW" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Settings — SD.cpp Web UI</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>tailwind.config = { darkMode: 'class' }</script>
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<style>body { background:#111827; color:#f3f4f6; }</style>
+</head>
+<body class="min-h-screen">
+<div id="app">
+
+<nav class="bg-gray-900 border-b border-gray-700 px-4 py-2 flex items-center gap-3 sticky top-0 z-50">
+  <a href="/" class="text-gray-400 hover:text-white text-sm">← Back</a>
+  <span class="text-purple-400 font-bold">⚙ Settings</span>
+</nav>
+
+<div class="max-w-2xl mx-auto p-6 space-y-6">
+
+  <!-- Binary -->
+  <div class="bg-gray-800 rounded-xl p-5 space-y-4">
+    <h2 class="font-semibold text-gray-200">SD Binary</h2>
+    <div>
+      <label class="text-sm text-gray-400 block mb-1">sd binary path</label>
+      <input v-model="cfg.sd_bin" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-purple-500">
+    </div>
+    <div class="flex items-center gap-3">
+      <button @click="testBinary"
+        class="px-4 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm">🔍 Test Binary</button>
+      <span class="text-sm" :class="testResult?.ok?'text-green-400':'text-red-400'" v-if="testResult">
+        {{ testResult.ok ? '✓ ' + testResult.version : '✗ Not found' }}
+      </span>
+    </div>
+  </div>
+
+  <!-- Directories -->
+  <div class="bg-gray-800 rounded-xl p-5 space-y-4">
+    <h2 class="font-semibold text-gray-200">Directories</h2>
+    <div v-for="(label, key) in dirFields" :key="key">
+      <label class="text-sm text-gray-400 block mb-1">{{ label }}</label>
+      <input v-model="cfg[key]" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-purple-500">
+    </div>
+  </div>
+
+  <!-- Performance -->
+  <div class="bg-gray-800 rounded-xl p-5 space-y-4">
+    <h2 class="font-semibold text-gray-200">Performance</h2>
+    <label class="flex items-center gap-3 cursor-pointer">
+      <input type="checkbox" v-model="cfg.flash_attention" class="accent-purple-500 w-4 h-4">
+      <span class="text-sm">Flash Attention (FA) — save VRAM for DiT models</span>
+    </label>
+    <label class="flex items-center gap-3 cursor-pointer">
+      <input type="checkbox" v-model="cfg.vae_tiling" class="accent-purple-500 w-4 h-4">
+      <span class="text-sm">VAE Tiling — reduce peak VRAM during decode</span>
+    </label>
+    <label class="flex items-center gap-3 cursor-pointer">
+      <input type="checkbox" v-model="cfg.vae_on_cpu" class="accent-purple-500 w-4 h-4">
+      <span class="text-sm">VAE on CPU</span>
+    </label>
+    <label class="flex items-center gap-3 cursor-pointer">
+      <input type="checkbox" v-model="cfg.clip_on_cpu" class="accent-purple-500 w-4 h-4">
+      <span class="text-sm">CLIP on CPU</span>
+    </label>
+    <div>
+      <label class="text-sm text-gray-400 block mb-1">CPU Threads (-1 = auto)</label>
+      <input type="number" v-model.number="cfg.threads" min="-1" max="128"
+        class="w-32 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-purple-500">
+    </div>
+  </div>
+
+  <!-- Server -->
+  <div class="bg-gray-800 rounded-xl p-5 space-y-4">
+    <h2 class="font-semibold text-gray-200">Server</h2>
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <label class="text-sm text-gray-400 block mb-1">Host</label>
+        <input v-model="cfg.host" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-purple-500">
+        <p class="text-xs text-gray-500 mt-1">Use 0.0.0.0 for LAN access</p>
+      </div>
+      <div>
+        <label class="text-sm text-gray-400 block mb-1">Port</label>
+        <input type="number" v-model.number="cfg.port"
+          class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-purple-500">
+      </div>
+    </div>
+    <div class="bg-gray-700/50 rounded-lg p-3 text-xs text-gray-400">
+      <p class="font-semibold text-gray-300 mb-1">Remote access via SSH tunnel:</p>
+      <code class="text-green-400">ssh -L {{ cfg.port }}:localhost:{{ cfg.port }} user@your-server</code>
+      <p class="mt-1">Then open <span class="text-purple-400">http://localhost:{{ cfg.port }}</span></p>
+    </div>
+  </div>
+
+  <!-- Save -->
+  <div class="flex gap-3">
+    <button @click="save"
+      class="px-6 py-2 bg-purple-600 hover:bg-purple-500 rounded-lg font-semibold text-sm">
+      💾 Save Settings
+    </button>
+    <span v-if="saved" class="text-green-400 text-sm self-center">✓ Saved</span>
+  </div>
+
+</div>
+</div>
+
+<script>
+const { createApp, ref, onMounted } = Vue;
+createApp({
+  setup() {
+    const cfg = ref({});
+    const testResult = ref(null);
+    const saved = ref(false);
+
+    const dirFields = {
+      models_dir: 'Models directory',
+      output_dir: 'Output directory',
+      lora_dir: 'LoRA directory',
+      controlnet_dir: 'ControlNet directory',
+      taesd_dir: 'TAESD directory',
+    };
+
+    async function loadConfig() {
+      const r = await fetch('/api/config');
+      cfg.value = await r.json();
+    }
+
+    async function testBinary() {
+      const r = await fetch('/api/system');
+      const d = await r.json();
+      testResult.value = { ok: d.binary_ok, version: d.binary_version };
+    }
+
+    async function save() {
+      await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cfg.value),
+      });
+      saved.value = true;
+      setTimeout(() => saved.value = false, 3000);
+    }
+
+    onMounted(loadConfig);
+    return { cfg, testResult, saved, dirFields, testBinary, save };
+  }
+}).mount('#app');
+</script>
+</body>
+</html>

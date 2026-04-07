@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="zh-TW" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gallery — SD.cpp Web UI</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>tailwind.config = { darkMode: 'class' }</script>
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<style>
+  body { background:#111827; color:#f3f4f6; }
+  .img-card { transition:transform .15s; }
+  .img-card:hover { transform:scale(1.02); }
+  ::-webkit-scrollbar { width:6px; } ::-webkit-scrollbar-thumb { background:#374151; border-radius:3px; }
+  .fade-enter-active,.fade-leave-active { transition:opacity .2s; }
+  .fade-enter-from,.fade-leave-to { opacity:0; }
+</style>
+</head>
+<body class="min-h-screen">
+<div id="app">
+
+<nav class="bg-gray-900 border-b border-gray-700 px-4 py-2 flex items-center justify-between sticky top-0 z-50">
+  <div class="flex items-center gap-3">
+    <a href="/" class="text-gray-400 hover:text-white text-sm">← Back</a>
+    <span class="text-purple-400 font-bold">🖼 Gallery</span>
+  </div>
+  <div class="flex items-center gap-3">
+    <label class="flex items-center gap-2 text-sm text-gray-300">
+      <input type="checkbox" v-model="favsOnly" @change="loadImages(true)" class="accent-purple-500">
+      ★ Favorites only
+    </label>
+    <span class="text-xs text-gray-500">{{ total }} images</span>
+    <button @click="loadImages(true)" class="text-sm px-3 py-1 bg-gray-800 hover:bg-gray-700 rounded">↺ Refresh</button>
+  </div>
+</nav>
+
+<div class="p-4 max-w-[1600px] mx-auto">
+  <!-- Masonry grid -->
+  <div class="columns-2 sm:columns-3 md:columns-4 lg:columns-5 xl:columns-6 gap-3 space-y-3">
+    <div v-for="img in images" :key="img.filename"
+      class="img-card break-inside-avoid bg-gray-800 rounded-xl overflow-hidden relative group cursor-pointer"
+      @click="openLightbox(img)">
+      <img :src="img.url" class="w-full object-cover" loading="lazy">
+      <div class="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition"></div>
+      <div class="absolute top-2 right-2 hidden group-hover:flex gap-1">
+        <button @click.stop="toggleFav(img)"
+          class="text-sm bg-black/80 px-2 py-1 rounded hover:bg-black"
+          :class="img.favorite?'text-yellow-400':'text-gray-300'">
+          {{ img.favorite?'★':'☆' }}
+        </button>
+        <a :href="img.url" download @click.stop
+          class="text-sm bg-black/80 px-2 py-1 rounded hover:bg-black text-gray-300">⬇</a>
+        <button @click.stop="viewMeta(img)"
+          class="text-sm bg-black/80 px-2 py-1 rounded hover:bg-black text-gray-300">ℹ</button>
+      </div>
+      <div class="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/70 text-xs text-gray-300 opacity-0 group-hover:opacity-100 transition truncate">
+        {{ img.filename }}
+      </div>
+    </div>
+  </div>
+
+  <!-- Load more -->
+  <div v-if="images.length < total" class="text-center mt-6">
+    <button @click="loadMore" class="px-6 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm">
+      Load more ({{ images.length }}/{{ total }})
+    </button>
+  </div>
+
+  <div v-if="images.length===0" class="text-center text-gray-500 py-20">
+    No images yet. Generate some!
+  </div>
+</div>
+
+<!-- Lightbox -->
+<Transition name="fade">
+  <div v-if="lightbox" class="fixed inset-0 bg-black/95 z-50 flex items-center justify-center p-4"
+    @click.self="lightbox=null">
+    <div class="max-w-5xl w-full">
+      <img :src="lightbox.url" class="max-h-[80vh] mx-auto rounded-xl object-contain">
+      <div class="mt-3 flex items-center justify-between flex-wrap gap-2">
+        <div class="text-sm text-gray-300 truncate">{{ lightbox.filename }}</div>
+        <div class="flex gap-2">
+          <button @click="toggleFav(lightbox)" class="px-3 py-1.5 rounded-lg text-sm"
+            :class="lightbox.favorite?'bg-yellow-600':'bg-gray-700 hover:bg-gray-600'">
+            {{ lightbox.favorite?'★ Favorited':'☆ Favorite' }}
+          </button>
+          <a :href="lightbox.url" download class="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm">⬇ Download</a>
+          <button @click="a2main(lightbox)" class="px-3 py-1.5 bg-purple-700 hover:bg-purple-600 rounded-lg text-sm">→ Use in Generator</button>
+          <button @click="lightbox=null" class="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm">✕</button>
+        </div>
+      </div>
+      <!-- meta -->
+      <div v-if="meta" class="mt-2 bg-gray-900 rounded-xl p-3 text-xs text-gray-400 max-h-32 overflow-y-auto">
+        <div v-for="(v,k) in meta.meta" :key="k"><span class="text-purple-400">{{ k }}:</span> {{ v }}</div>
+      </div>
+    </div>
+  </div>
+</Transition>
+
+<!-- Meta dialog -->
+<Transition name="fade">
+  <div v-if="metaImg" class="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
+    @click.self="metaImg=null">
+    <div class="bg-gray-800 rounded-xl p-5 max-w-lg w-full">
+      <h3 class="font-semibold mb-3">Image Info: {{ metaImg.filename }}</h3>
+      <div v-if="meta" class="text-xs space-y-1 text-gray-300 max-h-64 overflow-y-auto">
+        <div><span class="text-gray-400">Size:</span> {{ meta.size?.width }}×{{ meta.size?.height }}</div>
+        <div v-for="(v,k) in meta.meta" :key="k"><span class="text-purple-400">{{ k }}:</span> {{ v }}</div>
+      </div>
+      <div v-else class="text-xs text-gray-500">Loading…</div>
+      <button @click="metaImg=null" class="mt-4 px-4 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-sm">Close</button>
+    </div>
+  </div>
+</Transition>
+
+</div>
+
+<script>
+const { createApp, ref, onMounted } = Vue;
+createApp({
+  setup() {
+    const images = ref([]);
+    const total = ref(0);
+    const offset = ref(0);
+    const favsOnly = ref(false);
+    const lightbox = ref(null);
+    const metaImg = ref(null);
+    const meta = ref(null);
+
+    async function loadImages(reset = false) {
+      if (reset) { offset.value = 0; images.value = []; }
+      const r = await fetch(`/api/gallery?limit=50&offset=${offset.value}&favorites_only=${favsOnly.value}`);
+      const d = await r.json();
+      images.value = [...images.value, ...(d.images || [])];
+      total.value = d.total;
+      offset.value += (d.images || []).length;
+    }
+
+    async function loadMore() { await loadImages(false); }
+
+    async function toggleFav(img) {
+      await fetch(`/api/favorites/${encodeURIComponent(img.filename)}`, { method: 'POST' });
+      img.favorite = !img.favorite;
+      if (lightbox.value?.filename === img.filename) lightbox.value.favorite = img.favorite;
+    }
+
+    function openLightbox(img) {
+      lightbox.value = img;
+      meta.value = null;
+      fetchMeta(img);
+    }
+
+    async function viewMeta(img) {
+      metaImg.value = img;
+      meta.value = null;
+      await fetchMeta(img);
+    }
+
+    async function fetchMeta(img) {
+      try {
+        const r = await fetch(`/api/image-meta/${encodeURIComponent(img.filename)}`);
+        meta.value = await r.json();
+      } catch { meta.value = { meta: { error: 'Failed to load' } }; }
+    }
+
+    function a2main(img) {
+      // pass filename to main page via session storage
+      sessionStorage.setItem('use_as_img2img', img.url);
+      window.location.href = '/';
+    }
+
+    onMounted(() => loadImages(true));
+    return { images, total, favsOnly, lightbox, metaImg, meta, loadImages, loadMore, toggleFav, openLightbox, viewMeta, a2main };
+  }
+}).mount('#app');
+</script>
+</body>
+</html>
