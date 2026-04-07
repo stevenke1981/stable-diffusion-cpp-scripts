@@ -434,7 +434,7 @@ def create_wrapper() -> None:
     wrapper = INSTALL_DIR / "sd"
     content = (
         "#!/usr/bin/env bash\n"
-        f'SD_BIN="{BUILD_DIR}/bin/sd"\n'
+        f'SD_BIN="{BUILD_DIR}/bin/sd-cli"\n'
         '[[ ! -x "$SD_BIN" ]] && { echo "Error: binary not found at $SD_BIN" >&2; exit 1; }\n'
         'exec "$SD_BIN" "$@"\n'
     )
@@ -457,7 +457,7 @@ def print_summary(backend: str) -> None:
     print(f"{BLD}Binary    :{RST}  {BUILD_DIR}/bin/sd")
     print()
     print(f"{BLD}Quick test:{RST}")
-    print(f"  {BUILD_DIR}/bin/sd -m {MODELS_DIR}/<model.gguf> -p \"a cat\" -o out.png")
+    print(f"  {BUILD_DIR}/bin/sd-cli -m {MODELS_DIR}/<model.gguf> -p \"a cat\" -o out.png")
     print()
     info("Download models: python3 download-models.py  (or ./download-models.sh)")
 

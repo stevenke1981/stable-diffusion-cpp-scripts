@@ -7,7 +7,7 @@
 set -euo pipefail
 
 MODELS_DIR="${MODELS_DIR:-$HOME/sd-models}"
-SD_BIN="${SD_BIN:-$HOME/stable-diffusion.cpp/build/bin/sd}"
+SD_BIN="${SD_BIN:-$HOME/stable-diffusion.cpp/build/bin/sd-cli}"
 OUTPUT_DIR="${OUTPUT_DIR:-$HOME/sd-outputs}"
 
 MODEL="$MODELS_DIR/sd1x/v1-5-pruned-emaonly.safetensors"

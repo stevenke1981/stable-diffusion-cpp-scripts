@@ -69,8 +69,8 @@ download_file() {
 find_sd_bin() {
     if [[ -n "$SD_BIN" && -x "$SD_BIN" ]]; then return; fi
     for candidate in \
-        "$HOME/stable-diffusion.cpp/build/bin/sd" \
-        "./build/bin/sd" \
+        "$HOME/stable-diffusion.cpp/build/bin/sd-cli" \
+        "./build/bin/sd-cli" \
         "/usr/local/bin/sd" \
         "$(command -v sd 2>/dev/null || true)"
     do

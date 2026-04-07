@@ -6,7 +6,7 @@
 set -euo pipefail
 
 MODELS_DIR="${MODELS_DIR:-$HOME/sd-models}"
-SD_BIN="${SD_BIN:-$HOME/stable-diffusion.cpp/build/bin/sd}"
+SD_BIN="${SD_BIN:-$HOME/stable-diffusion.cpp/build/bin/sd-cli}"
 OUTPUT_DIR="${OUTPUT_DIR:-$HOME/sd-outputs}"
 
 # 自動選擇可用模型（SDXL 優先，次選 SD1.5）
