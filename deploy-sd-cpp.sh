@@ -412,8 +412,10 @@ build_project() {
         cuda)
             log "Configuring with CUDA support..."
             if ! check_cmd nvcc; then
-                error "nvcc not found. Ensure CUDA toolkit is installed and in PATH."
-                error "Try: export PATH=\$PATH:/usr/local/cuda/bin"
+                error "nvcc not found. Install CUDA toolkit first:"
+                error "  python3 install-cuda.py          # auto-install from NVIDIA repo"
+                error "  python3 install-cuda.py --version 12.6  # specific version"
+                error "Then re-run this script."
                 exit 1
             fi
             cmake_extra_args+=(-DSD_CUDA=ON)
