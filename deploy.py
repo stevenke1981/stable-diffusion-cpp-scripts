@@ -339,13 +339,34 @@ def build(backend: str) -> None:
     ]
 
     if backend == "cuda":
-        nvcc = shutil.which("nvcc") or "/usr/local/cuda/bin/nvcc"
-        if not Path(nvcc).exists():
-            error("nvcc not found. Run:  python3 deploy.py --skip-build  first to install CUDA,")
-            error("then source ~/.bashrc and re-run deploy.py.")
+        # Search common CUDA install paths in priority order
+        nvcc = (
+            shutil.which("nvcc")
+            or next(
+                (str(p) for p in [
+                    Path("/usr/local/cuda/bin/nvcc"),
+                    Path("/usr/local/cuda-12.6/bin/nvcc"),
+                    Path("/usr/local/cuda-12.5/bin/nvcc"),
+                    Path("/usr/local/cuda-12.4/bin/nvcc"),
+                    Path("/usr/local/cuda-12/bin/nvcc"),
+                    Path("/usr/local/cuda-11.8/bin/nvcc"),
+                ] if p.exists()),
+                None,
+            )
+        )
+        if not nvcc:
+            error("nvcc not found in PATH or common CUDA paths.")
+            error("Run:  python3 deploy.py --skip-build  to install CUDA first.")
             sys.exit(1)
         log(f"nvcc: {nvcc}")
-        cmake_args.append("-DSD_CUDA=ON")
+        cuda_bin = str(Path(nvcc).parent)
+        cmake_args += [
+            "-DSD_CUDA=ON",
+            f"-DCMAKE_CUDA_COMPILER={nvcc}",
+        ]
+        # Ensure nvcc directory is in PATH for cmake sub-processes
+        os.environ["PATH"] = cuda_bin + ":" + os.environ.get("PATH", "")
+        os.environ["CUDACXX"] = nvcc
 
     elif backend == "hipblas":
         gfx = ""
