@@ -33,17 +33,20 @@ DOWNLOAD_SAMPLE_MODEL="${DOWNLOAD_SAMPLE_MODEL:-true}"
 BACKEND=""        # auto-detected unless set: cuda | hipblas | vulkan | sycl | cpu
 
 # ── Helper utilities ──────────────────────────────────────────────────────────
+
+# Use sudo automatically when not running as root
+SUDO=""
+[[ $EUID -ne 0 ]] && SUDO="sudo"
+
 require_root() {
-    if [[ $EUID -ne 0 ]]; then
-        error "This section requires root. Re-run with sudo or as root."
-        exit 1
-    fi
+    # No-op: kept for compatibility; SUDO variable handles privilege escalation
+    :
 }
 
 check_cmd() { command -v "$1" &>/dev/null; }
 
 apt_install() {
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$@"
+    DEBIAN_FRONTEND=noninteractive $SUDO apt-get install -y --no-install-recommends "$@"
 }
 
 # [FIX LOW] Use printf instead of echo -e inside read -p for portability
@@ -85,7 +88,7 @@ install_system_deps() {
     require_root
 
     log "Updating package lists..."
-    apt-get update -qq
+    $SUDO apt-get update -qq
 
     log "Installing build essentials..."
     apt_install \
@@ -185,15 +188,15 @@ _do_nvidia_install() {
     local distro_id="${ID}"
 
     log "Removing old driver packages if any..."
-    apt-get remove --purge -y 'nvidia-*' 'cuda-*' 2>/dev/null || true
-    apt-get autoremove -y 2>/dev/null || true
+    $SUDO apt-get remove --purge -y 'nvidia-*' 'cuda-*' 2>/dev/null || true
+    $SUDO apt-get autoremove -y 2>/dev/null || true
 
     log "Adding NVIDIA repository..."
     case "$distro_id" in
         ubuntu)
             apt_install software-properties-common
-            add-apt-repository -y ppa:graphics-drivers/ppa
-            apt-get update -qq
+            $SUDO add-apt-repository -y ppa:graphics-drivers/ppa
+            $SUDO apt-get update -qq
             apt_install ubuntu-drivers-common
             ubuntu-drivers autoinstall || true
             ;;
@@ -210,8 +213,8 @@ _do_nvidia_install() {
                 nonfree_components="$nonfree_components non-free-firmware"
             fi
             echo "deb http://deb.debian.org/debian ${codename} ${nonfree_components}" \
-                > /etc/apt/sources.list.d/non-free.list
-            apt-get update -qq
+                | $SUDO tee /etc/apt/sources.list.d/non-free.list > /dev/null
+            $SUDO apt-get update -qq
             apt_install nvidia-driver firmware-misc-nonfree
             ;;
         *)
@@ -234,7 +237,7 @@ _do_nvidia_install() {
         if wget -q -O "$tmp_deb" "$cuda_keyring_url"; then
             apt_install "$tmp_deb"
             rm -f "$tmp_deb"
-            apt-get update -qq
+            $SUDO apt-get update -qq
             apt_install cuda-toolkit-12-6
         else
             rm -f "$tmp_deb"
@@ -247,7 +250,7 @@ _do_nvidia_install() {
     warn "A system reboot is REQUIRED before CUDA will work."
     warn "After reboot, run this script again to continue the build."
     if confirm "Reboot now?"; then
-        reboot
+        $SUDO reboot
     fi
 }
 
@@ -281,11 +284,11 @@ install_amd_driver() {
     apt_install "$tmp_deb"
     rm -f "$tmp_deb"   # [FIX LOW] clean up temp deb
 
-    apt-get update -qq
-    amdgpu-install --usecase=rocm --no-dkms -y
+    $SUDO apt-get update -qq
+    $SUDO amdgpu-install --usecase=rocm --no-dkms -y
 
     local REAL_USER="${SUDO_USER:-$USER}"
-    usermod -a -G render,video "$REAL_USER" 2>/dev/null || true
+    $SUDO usermod -a -G render,video "$REAL_USER" 2>/dev/null || true
 
     log "ROCm installation complete."
     warn "Log out and back in (or reboot) for group changes to take effect."
@@ -342,15 +345,15 @@ install_intel_sycl() {
         exit 1
     fi
 
-    gpg --dearmor < "$tmp_key" > /usr/share/keyrings/oneapi-archive-keyring.gpg
+    gpg --dearmor < "$tmp_key" | $SUDO tee /usr/share/keyrings/oneapi-archive-keyring.gpg > /dev/null
     rm -f "$tmp_key" "${tmp_key}.gpg"
     log "Intel GPG key fingerprint verified."
 
     echo "deb [signed-by=/usr/share/keyrings/oneapi-archive-keyring.gpg] \
 https://apt.repos.intel.com/oneapi all main" \
-        | tee /etc/apt/sources.list.d/oneAPI.list
+        | $SUDO tee /etc/apt/sources.list.d/oneAPI.list > /dev/null
 
-    apt-get update -qq
+    $SUDO apt-get update -qq
     log "Installing intel-basekit (this may take a while)..."
     apt_install intel-basekit
     log "Intel oneAPI installed at /opt/intel/oneapi/"
@@ -567,7 +570,7 @@ WRAPPER_EOF
     log "Wrapper created at $wrapper"
 
     if confirm "Symlink 'sd' to /usr/local/bin for system-wide access? (requires sudo)"; then
-        sudo ln -sf "$wrapper" /usr/local/bin/sd
+        $SUDO ln -sf "$wrapper" /usr/local/bin/sd
         log "Symlinked: /usr/local/bin/sd -> $wrapper"
     fi
 }
