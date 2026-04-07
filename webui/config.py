@@ -25,7 +25,7 @@ FAVORITES_FILE = CONFIG_DIR / "favorites.json"
 HOME = Path.home()
 
 DEFAULTS: dict = {
-    "sd_bin": str(HOME / "stable-diffusion.cpp" / "build" / "bin" / "sd"),
+    "sd_bin": str(HOME / "stable-diffusion.cpp" / "build" / "bin" / "sd-cli"),
     "models_dir": str(HOME / "sd-models"),
     "output_dir": str(HOME / "sd-outputs"),
     "lora_dir": str(HOME / "sd-models" / "loras"),
